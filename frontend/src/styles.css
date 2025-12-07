@@ -1,0 +1,125 @@
+:root {
+  --primary: #4b6cff;
+  --muted: #f3f5fb;
+  --text: #222;
+}
+
+body {
+  font-family: Inter, system-ui, Arial, sans-serif;
+  background: var(--muted);
+  color: var(--text);
+  margin: 0;
+  padding: 0;
+}
+
+.app-root {
+  padding: 18px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.card {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 12px 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.flex {
+  display: flex;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+}
+
+.center {
+  align-items: center;
+  justify-content: center;
+}
+
+.btn {
+  background: var(--primary);
+  color: white;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+.small {
+  font-size: 13px;
+  color: #666;
+}
+
+.video-wrap {
+  position: relative;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.video-wrap video {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.overlay-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.zone-label {
+  position: absolute;
+  background: rgba(255,255,255,0.8);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.right-panel {
+  padding-left: 16px;
+  width: 380px;
+}
+
+.gauge {
+  font-size: 44px;
+  font-weight: 700;
+}
+
+.trend-canvas {
+  height: 160px;
+}
+
+h1, h2, h3, h4 {
+  margin: 0 0 12px 0;
+}
+
+input, select {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+  font-family: inherit;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
