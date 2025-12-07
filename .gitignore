@@ -1,0 +1,12 @@
+# Node modules
+node_modules/
+
+# Secrets / local config
+backend/node_modules/debug/.coveralls.yml
+.env
+
+# Optional common ignores
+frontend/node_modules/
+dist/
+.vercel/
+.DS_Store
