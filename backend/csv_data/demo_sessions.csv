@@ -1,0 +1,2 @@
+SessionId,Course,Section,Classroom,StartTime,EndTime,Duration,AvgEngagement,PeopleCount,EyesClosedCount,HeadPoseWarnings,GazeWarnings,MalpracticeWarnings
+ea362bf9-19e7-4316-bc79-83c7667e482c,CSE-A,DBMS,Lab-101,2026-01-29T16:53:15.112Z,2026-01-29T16:57:34.152Z,4,84,0,0,2,4,5

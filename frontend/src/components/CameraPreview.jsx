@@ -20,10 +20,17 @@ export default function CameraPreview({zones=3, rows=2, onMetrics, running=true,
   const eyesClosedTimersRef = useRef({}) // { personIndex: frameCount }
   const sleepLoggedRef = useRef({}) // { personIndex: boolean }
   
+  // Track head turning frames per person
+  const headTurnTimersRef = useRef({}) // { personIndex: frameCount }
+  const headTurnLoggedRef = useRef({}) // { personIndex: boolean }
+  
   // Constants matching Python reference
   const EAR_THRESHOLD = 0.21
   const EYE_WAIT_FRAMES = 30 // 30 frames = ~10 seconds at 3s intervals
   const SLEEP_DECAY = 100 / EYE_WAIT_FRAMES
+  
+  const HEAD_TURN_THRESHOLD = 35 // Balanced threshold for head turning detection
+  const HEAD_TURN_WAIT_FRAMES = 2 // 2 frames = ~6 seconds at 3s intervals (close to 5s)
   
   // Tracking counters
   const [counters, setCounters] = useState({
@@ -172,31 +179,24 @@ export default function CameraPreview({zones=3, rows=2, onMetrics, running=true,
             const landmarks = detection.landmarks
             const expressions = detection.expressions
             
-            // Eye closure detection using multiple methods
+            // Eye closure detection using EAR (Eye Aspect Ratio) ONLY
             const leftEye = landmarks.getLeftEye()
             const rightEye = landmarks.getRightEye()
             
-            // Method 1: EAR (Eye Aspect Ratio)
+            // Calculate EAR for both eyes
             const leftEAR = calculateEAR(leftEye)
             const rightEAR = calculateEAR(rightEye)
             const avgEAR = (leftEAR + rightEAR) / 2.0
             
-            // Method 2: Expression-based detection
-            // INVERTED: When eyes are OPEN, neutral is high. When CLOSED, neutral is low
-            const expressionBasedClosed = expressions.neutral < 0.3 || expressions.sad > 0.5
-            
-            // EAR: Lower values = closed eyes (this part is correct)
-            const eyesClosedByEAR = avgEAR < 0.21
-            
-            // Combine both methods - eyes closed if EITHER detects it
-            const eyesClosed = eyesClosedByEAR || expressionBasedClosed
+            // EAR threshold: Lower values = closed eyes
+            // Typical values: open = 0.25-0.35, closed = 0.10-0.20
+            // Using 0.18 as threshold (more strict)
+            const eyesClosed = avgEAR < 0.18
             
             // Store values for debugging
             detection.earValue = avgEAR.toFixed(3)
-            detection.neutralExp = expressions.neutral.toFixed(3)
-            detection.sadExp = expressions.sad.toFixed(3)
             
-            console.log(`Person ${index}: EAR=${avgEAR.toFixed(3)}, Neutral=${expressions.neutral.toFixed(3)}, Sad=${expressions.sad.toFixed(3)}, Closed=${eyesClosed}`)
+            console.log(`Person ${index}: EAR=${avgEAR.toFixed(3)}, Closed=${eyesClosed}`)
             
             // Initialize tracking for this person if not exists
             if (!eyesClosedTimersRef.current[index]) {
@@ -204,6 +204,12 @@ export default function CameraPreview({zones=3, rows=2, onMetrics, running=true,
             }
             if (!sleepLoggedRef.current[index]) {
               sleepLoggedRef.current[index] = false
+            }
+            if (!headTurnTimersRef.current[index]) {
+              headTurnTimersRef.current[index] = 0
+            }
+            if (!headTurnLoggedRef.current[index]) {
+              headTurnLoggedRef.current[index] = false
             }
             
             // SLEEP CHECK (matching Python logic)
@@ -255,26 +261,44 @@ export default function CameraPreview({zones=3, rows=2, onMetrics, running=true,
                 y: nose[3].y
               }
               
-              // Head pose detection - looking away significantly
-              const headTurn = Math.abs(eyeCenter.x - noseCenter.x)
-              if (headTurn > 25) { // Increased threshold
-                newCounters.headPoseWarnings++
-                distractionPenalty += 8
-              }
+              // Calculate head turn angle (horizontal)
+              const headTurnAngle = Math.abs(eyeCenter.x - noseCenter.x)
               
-              // Gaze direction
-              const faceCenter = detection.detection.box.x + detection.detection.box.width / 2
-              const gazeOffset = Math.abs(eyeCenter.x - faceCenter)
-              if (gazeOffset > 30) { // Increased threshold
-                newCounters.gazeWarnings++
-                distractionPenalty += 5
-              }
-            }
-            
-            // Malpractice detection for exam mode
-            if (mode === 'exam') {
-              if (newCounters.headPoseWarnings > 0 || newCounters.gazeWarnings > 0) {
-                newCounters.malpracticeWarnings++
+              console.log(`Person ${index}: Head turn angle=${headTurnAngle.toFixed(1)}`)
+              
+              // Check if head is turned significantly
+              if (headTurnAngle > HEAD_TURN_THRESHOLD) {
+                headTurnTimersRef.current[index] += 1
+                distractionPenalty += 10
+                
+                console.log(`Person ${index}: 🔄 HEAD TURNING - Timer=${headTurnTimersRef.current[index]}`)
+                
+                if (headTurnTimersRef.current[index] > HEAD_TURN_WAIT_FRAMES) {
+                  // MALPRACTICE! (after 2 frames = ~6 seconds)
+                  newCounters.malpracticeWarnings++
+                  newCounters.headPoseWarnings++
+                  distractionPenalty += 20
+                  if (detection.status !== "SLEEPING!") {
+                    detection.status = "MALPRACTICE!"
+                  }
+                  
+                  if (!headTurnLoggedRef.current[index]) {
+                    console.log(`Person ${index}: 🚨 MALPRACTICE! Head turned for ${headTurnTimersRef.current[index]} frames`)
+                    headTurnLoggedRef.current[index] = true
+                  }
+                } else {
+                  newCounters.headPoseWarnings++
+                  if (detection.status === "FOCUSED") {
+                    detection.status = "Head Turning..."
+                  }
+                }
+              } else {
+                // Head facing forward - decrease timer
+                if (headTurnTimersRef.current[index] > 0) {
+                  headTurnTimersRef.current[index] -= 1
+                  console.log(`Person ${index}: ✅ Head forward, timer decreasing: ${headTurnTimersRef.current[index]}`)
+                }
+                headTurnLoggedRef.current[index] = false
               }
             }
           })
@@ -369,27 +393,40 @@ export default function CameraPreview({zones=3, rows=2, onMetrics, running=true,
     
     if (faceDetections.length === 0) return
     
-    if (!anonymize) {
-      faceDetections.forEach((detection, index) => {
-        const box = detection.detection.box
-        const eyesClosed = detection.eyesClosed || false
-        const earValue = detection.earValue || 'N/A'
-        
-        // Draw face box
-        ctx.strokeStyle = eyesClosed ? '#ff9500' : (mode === 'exam' ? '#ff3b30' : '#30d158')
-        ctx.lineWidth = 3
-        ctx.strokeRect(box.x, box.y, box.width, box.height)
-        
-        // Draw background for text
-        ctx.fillStyle = eyesClosed ? 'rgba(255,149,0,0.9)' : (mode === 'exam' ? 'rgba(255,59,48,0.9)' : 'rgba(48,209,88,0.9)')
-        ctx.fillRect(box.x, box.y - 30, 180, 28)
-        
-        // Draw person label with EAR value
-        ctx.fillStyle = 'white'
-        ctx.font = 'bold 16px -apple-system, sans-serif'
-        ctx.fillText(`Person ${index + 1} (${earValue})`, box.x + 5, box.y - 10)
-        
-        // Draw landmarks (eyes)
+    // Always draw face boxes (even when anonymize is true)
+    faceDetections.forEach((detection, index) => {
+      const box = detection.detection.box
+      const eyesClosed = detection.eyesClosed || false
+      const status = detection.status || 'FOCUSED'
+      
+      // Determine color based on status
+      let boxColor = '#30d158' // Green for focused
+      if (status === 'SLEEPING!' || status === 'MALPRACTICE!') {
+        boxColor = '#ff3b30' // Red
+      } else if (status === 'Eyes Closed...' || status === 'Head Turning...') {
+        boxColor = '#ff9500' // Orange
+      } else if (mode === 'exam') {
+        boxColor = '#ff3b30' // Red in exam mode
+      }
+      
+      // Draw face box
+      ctx.strokeStyle = boxColor
+      ctx.lineWidth = 3
+      ctx.strokeRect(box.x, box.y, box.width, box.height)
+      
+      // Draw background for text
+      ctx.fillStyle = boxColor
+      ctx.globalAlpha = 0.9
+      ctx.fillRect(box.x, box.y - 30, 200, 28)
+      ctx.globalAlpha = 1.0
+      
+      // Draw person label with status
+      ctx.fillStyle = 'white'
+      ctx.font = 'bold 16px -apple-system, sans-serif'
+      ctx.fillText(`Person ${index + 1}: ${status}`, box.x + 5, box.y - 10)
+      
+      // Draw landmarks (eyes) only if not anonymized
+      if (!anonymize) {
         const leftEye = detection.landmarks.getLeftEye()
         const rightEye = detection.landmarks.getRightEye()
         
@@ -404,8 +441,8 @@ export default function CameraPreview({zones=3, rows=2, onMetrics, running=true,
           ctx.arc(point.x, point.y, 2, 0, 2 * Math.PI)
           ctx.fill()
         })
-      })
-    }
+      }
+    })
   }, [faceDetections, anonymize, mode])
 
   return (
